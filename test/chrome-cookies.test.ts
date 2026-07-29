@@ -7,7 +7,7 @@ import {
 } from "../src/chrome-cookies.js";
 
 describe("Chrome cookie export", () => {
-  test("exports only live iHerb cookies and keeps the most specific duplicate", () => {
+  test("exports only live cookies applicable to the target iHerb URL", () => {
     const header = iHerbCookieHeader([
       {
         name: "session",
@@ -20,6 +20,12 @@ describe("Chrome cookie export", () => {
         value: "specific",
         domain: "www.iherb.com",
         path: "/search",
+      },
+      {
+        name: "account-only",
+        value: "private",
+        domain: "account.iherb.com",
+        path: "/",
       },
       {
         name: "other",
@@ -36,7 +42,26 @@ describe("Chrome cookie export", () => {
       },
     ]);
 
-    expect(header).toBe("session=specific");
+    expect(header).toBe("session=root");
+    expect(
+      iHerbCookieHeader(
+        [
+          {
+            name: "session",
+            value: "root",
+            domain: ".iherb.com",
+            path: "/",
+          },
+          {
+            name: "session",
+            value: "specific",
+            domain: "www.iherb.com",
+            path: "/search",
+          },
+        ],
+        "https://www.iherb.com/search",
+      ),
+    ).toBe("session=specific");
   });
 
   test("escapes dotenv values without exposing extra lines", () => {

@@ -15,6 +15,20 @@ export {
   iHerbCookieHeader,
 } from "./chrome-cookies.js";
 export type { ChromeCookie } from "./chrome-cookies.js";
+export {
+  BrowserCookieError,
+  discoverBrowserProfiles,
+  extractIHerbBrowserSession,
+  listBrowserProfiles,
+} from "./browser-session.js";
+export type {
+  BrowserChoice,
+  BrowserProfile,
+  BrowserProfileWithCookieCount,
+  ExtractBrowserSessionOptions,
+  ExtractedBrowserSession,
+  SupportedBrowser,
+} from "./browser-session.js";
 export type {
   FetchLike,
   IHerbClient,

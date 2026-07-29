@@ -7,21 +7,43 @@ export interface ChromeCookie {
   expires?: number;
 }
 
-function domainMatchesIHerb(domain: string): boolean {
+function domainMatchesHost(domain: string, host: string): boolean {
   const normalized = domain.replace(/^\./, "").toLowerCase();
-  return normalized === "iherb.com" || normalized.endsWith(".iherb.com");
+  return domain.startsWith(".")
+    ? host === normalized || host.endsWith(`.${normalized}`)
+    : host === normalized;
+}
+
+function pathMatches(cookiePath: string, requestPath: string): boolean {
+  if (cookiePath === requestPath) return true;
+  if (!requestPath.startsWith(cookiePath)) return false;
+  return (
+    cookiePath.endsWith("/") ||
+    requestPath.charAt(cookiePath.length) === "/"
+  );
 }
 
 /**
- * Produces the Cookie header that Chrome would send to public www.iherb.com
- * pages. Duplicate names are resolved in favor of the most specific path.
+ * Produces the Cookie header Chrome would send to the target iHerb URL.
+ * The root URL is the safe default because those cookies also apply to search
+ * and product pages.
  */
-export function iHerbCookieHeader(cookies: ChromeCookie[]): string {
+export function iHerbCookieHeader(
+  cookies: ChromeCookie[],
+  targetUrl = "https://www.iherb.com/",
+): string {
   const nowSeconds = Date.now() / 1_000;
+  const target = new URL(targetUrl);
+  const targetHost = target.hostname.toLowerCase();
   const selected = new Map<string, ChromeCookie>();
 
   for (const cookie of cookies) {
-    if (!domainMatchesIHerb(cookie.domain)) continue;
+    if (
+      !domainMatchesHost(cookie.domain, targetHost) ||
+      !pathMatches(cookie.path || "/", target.pathname)
+    ) {
+      continue;
+    }
     if (cookie.expires != null && cookie.expires > 0 && cookie.expires <= nowSeconds) {
       continue;
     }

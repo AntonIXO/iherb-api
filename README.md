@@ -13,7 +13,7 @@ product label. OCR itself is intentionally out of scope.
 bun add iherb-api
 ```
 
-## Capture Chrome cookies
+## Export cookies from an existing browser
 
 Run the package CLI:
 
@@ -31,13 +31,9 @@ bun install
 bun run cookies
 ```
 
-The command:
-
-1. finds Chrome/Chromium;
-2. starts it with an isolated temporary profile;
-3. opens iHerb and waits for browser verification or sign-in;
-4. reads only cookies applicable to `*.iherb.com`;
-5. closes Chrome, deletes the temporary profile, and prints:
+The command automatically checks your existing Google Chrome and Brave
+profiles, selects the profile with a usable iHerb session, decrypts only
+cookies for `*.iherb.com`, and prints:
 
 ```dotenv
 IHERB_COOKIE="..."
@@ -46,6 +42,10 @@ IHERB_USER_AGENT="..."
 
 Copy both lines into `.env`. The matching User-Agent is exported because some
 browser-verification cookies are bound to the browser identity.
+
+No browser window is opened. The command does not stop or modify a running
+browser and never queries cookies for other domains. The browser must already
+have an iHerb session; if it does not, log in normally and rerun the command.
 
 The CLI also performs a server-side validation request. Modern Cloudflare
 checks can bind access to TLS fingerprint and IP in addition to cookies and
@@ -57,12 +57,44 @@ shown, but they may not make Bun `fetch` pass the challenge. In that case,
 Options:
 
 ```bash
-bunx iherb-api --timeout 300
-bunx iherb-api --chrome-path /path/to/chrome
+bunx iherb-api --list-profiles
+bunx iherb-api --browser brave
+bunx iherb-api --browser chrome --profile "Profile 2"
+bunx iherb-api --no-validate
 ```
 
-The CLI never reads the cookie database of your normal Chrome profile. The
-printed values are secrets: do not commit them or paste them into logs.
+Profile names and directory names are both accepted. Profile listing counts
+iHerb rows without decrypting cookie values.
+
+Cookie extraction currently requires Bun. On Linux it uses the logged-in
+desktop keyring through `secret-tool`; on macOS, Keychain may ask you to allow
+access to Chrome or Brave Safe Storage. Legacy Windows `v10` cookies use the
+optional `@primno/dpapi` dependency. Chrome/Brave `v20` App-Bound Encryption
+cannot be decrypted by a standalone CLI; the command reports that limitation
+instead of attempting to bypass the operating-system protection.
+
+If Bun blocks the optional native DPAPI installer on Windows, review the
+package and enable it explicitly with `bun pm trust @primno/dpapi`.
+
+The printed values are secrets: do not commit them or paste them into logs.
+
+The same behavior is available programmatically:
+
+```ts
+import {
+  discoverBrowserProfiles,
+  extractIHerbBrowserSession,
+} from "iherb-api";
+
+const profiles = await discoverBrowserProfiles({ browser: "auto" });
+const session = await extractIHerbBrowserSession({
+  browser: "chrome",
+  profile: "Default",
+});
+
+console.log(session.profile.name);
+// Keep session.cookieHeader secret.
+```
 
 ## Usage
 
@@ -178,9 +210,9 @@ try {
 }
 ```
 
-The client persists `Set-Cookie`, but it does not read a browser profile, solve
-CAPTCHAs, or bypass a browser-verification challenge. Cookie values are never
-included in library error messages.
+The client persists `Set-Cookie`, but it does not automatically call the
+browser-profile extractor, solve CAPTCHAs, or bypass a browser-verification
+challenge. Cookie values are never included in library error messages.
 
 ## Development
 
