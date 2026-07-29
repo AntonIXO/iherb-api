@@ -18,9 +18,17 @@ bun add iherb-api
 Run the package CLI:
 
 ```bash
+# After the package is published to npm:
 bunx iherb-api
 # equivalent:
 bun x iherb-api
+```
+
+From a cloned repository:
+
+```bash
+bun install
+bun run cookies
 ```
 
 The command:

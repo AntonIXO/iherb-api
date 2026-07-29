@@ -23,6 +23,8 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "cookies": "bun src/cli.ts",
+    "prepare": "bun run build",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
