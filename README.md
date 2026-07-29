@@ -13,6 +13,11 @@ product label. OCR itself is intentionally out of scope.
 bun add iherb-api
 ```
 
+Maintainers: use the repository's
+[`npmjs-publish` skill](.agents/skills/npmjs-publish/SKILL.md) to create or
+rotate npm credentials, run the GitHub Actions publishing workflow, and verify
+the published package without exposing tokens.
+
 ## Export cookies from an existing browser
 
 Run the package CLI:

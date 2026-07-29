@@ -1,0 +1,4 @@
+interface:
+  display_name: "Publish to npm"
+  short_description: "Secure npm publishing through GitHub Actions"
+  default_prompt: "Use $npmjs-publish to configure and verify secure npm publishing for this repository."
