@@ -64,4 +64,23 @@ describe("IHerbSession", () => {
     await expect(session.requestText("/")).resolves.toContain("ok");
     expect(calls).toBe(2);
   });
+
+  test("requests JSON with the locale cookie on catalog subdomains", async () => {
+    let requestHeaders = new Headers();
+    const session = new IHerbSession({
+      fetch: async (_input, init) => {
+        requestHeaders = new Headers(init?.headers);
+        return Response.json({ ok: true });
+      },
+      rateLimit: { minDelayMs: 0 },
+    });
+
+    const result = await session.requestJson<{ ok: boolean }>(
+      "https://catalog.app.iherb.com/recommendations/comparison/1",
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(requestHeaders.get("accept")).toBe("application/json");
+    expect(requestHeaders.get("cookie")).toContain("iher-pref1=");
+  });
 });

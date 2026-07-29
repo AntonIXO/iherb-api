@@ -1,4 +1,5 @@
 import { IHerbNotFoundError } from "./errors.js";
+import { InternalCatalogService } from "./internal-catalog.js";
 import { productIdFromUrl } from "./normalize.js";
 import { parseProductPage } from "./product-parser.js";
 import { ProductSearchService } from "./search.js";
@@ -6,6 +7,7 @@ import { IHerbSession } from "./session.js";
 import type {
   IHerbClient,
   IHerbClientOptions,
+  IHerbCatalogProduct,
   IHerbProduct,
   ProductIndexSnapshot,
   ProductSearchResult,
@@ -16,10 +18,12 @@ import type {
 export class DefaultIHerbClient implements IHerbClient {
   private readonly session: IHerbSession;
   private readonly searchService: ProductSearchService;
+  private readonly internalCatalog: InternalCatalogService;
 
   constructor(options: IHerbClientOptions = {}) {
     this.session = new IHerbSession(options);
     this.searchService = new ProductSearchService(this.session);
+    this.internalCatalog = new InternalCatalogService(this.session);
   }
 
   searchProducts(
@@ -67,6 +71,13 @@ export class DefaultIHerbClient implements IHerbClient {
       ...(options.signal ? { signal: options.signal } : {}),
     });
     return parseProductPage(html, url, this.session.locale.currency);
+  }
+
+  getCatalogProduct(
+    productId: string | number,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<IHerbCatalogProduct> {
+    return this.internalCatalog.getProduct(productId, options);
   }
 
   refreshProductIndex(

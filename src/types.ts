@@ -139,6 +139,57 @@ export interface IHerbProduct {
   diagnostics: string[];
 }
 
+export interface CatalogAttribute {
+  id: number;
+  name: string | null;
+  values: string[];
+}
+
+export interface CatalogKeyIngredient {
+  name: string;
+  amount: ParsedQuantity | null;
+  rawAmount: string | null;
+  source: "ai_comparison";
+}
+
+/**
+ * Product data available from iHerb's internal JSON catalog endpoints.
+ *
+ * This is intentionally separate from `IHerbProduct`: the internal endpoints
+ * expose useful identity, dosage and availability data, but not the complete
+ * Supplement Facts label or directions for every product.
+ */
+export interface IHerbCatalogProduct {
+  productId: string;
+  groupId: string | null;
+  partNumber: string | null;
+  url: string;
+  name: string;
+  productName: string | null;
+  brand: {
+    code: string | null;
+    name: string | null;
+  };
+  category: {
+    rootName: string | null;
+    rootId: string | null;
+    comparisonName: string | null;
+  };
+  price: Money;
+  availability: ProductAvailability;
+  imageUrl: string | null;
+  rating: ProductRating;
+  package: ProductPackage;
+  servingSize: ParsedQuantity | null;
+  servingsPerContainer: number | null;
+  potency: ParsedQuantity | null;
+  keyIngredients: CatalogKeyIngredient[];
+  attributes: CatalogAttribute[];
+  certifications: string[];
+  expirationDate: string | null;
+  diagnostics: string[];
+}
+
 export interface SearchScoreReasons {
   fuzzyName: number;
   brand: number;
@@ -215,6 +266,10 @@ export interface IHerbClient {
     productIdOrUrl: string | number,
     options?: { signal?: AbortSignal },
   ): Promise<IHerbProduct>;
+  getCatalogProduct(
+    productId: string | number,
+    options?: { signal?: AbortSignal },
+  ): Promise<IHerbCatalogProduct>;
   refreshProductIndex(
     options?: RefreshProductIndexOptions,
   ): Promise<ProductIndexSnapshot>;

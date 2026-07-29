@@ -3,6 +3,7 @@ import { CookieJar } from "tough-cookie";
 import {
   IHerbBlockedError,
   IHerbHttpError,
+  IHerbParseError,
   IHerbRateLimitError,
 } from "./errors.js";
 import type {
@@ -135,6 +136,29 @@ export class IHerbSession {
     return this.scheduler.run(() => this.withRetries(url, options));
   }
 
+  async requestJson<T>(
+    input: string | URL,
+    options: RequestTextOptions = {},
+  ): Promise<T | null> {
+    const headers = new Headers(options.headers);
+    if (!headers.has("Accept")) {
+      headers.set("Accept", "application/json");
+    }
+    const text = await this.requestText(input, {
+      ...options,
+      headers,
+    });
+    if (!text.trim()) return null;
+    try {
+      return JSON.parse(text) as T;
+    } catch (error) {
+      throw new IHerbParseError(
+        "iHerb returned an invalid JSON response",
+        { cause: error },
+      );
+    }
+  }
+
   private async initializeCookies(): Promise<void> {
     if (this.initialized) return;
     this.initialized = true;
@@ -206,7 +230,12 @@ export class IHerbSession {
 
     try {
       const headers = new Headers(options.headers);
-      headers.set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+      if (!headers.has("Accept")) {
+        headers.set(
+          "Accept",
+          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        );
+      }
       headers.set("Accept-Language", `${this.locale.language},en;q=0.8`);
       headers.set("User-Agent", this.userAgent);
       headers.set("Cookie", await this.cookieJar.getCookieString(url.href));

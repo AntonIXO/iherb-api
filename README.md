@@ -138,6 +138,42 @@ if (selected) {
 }
 ```
 
+## Direct internal catalog JSON
+
+When you already know an iHerb product ID, use `getCatalogProduct()` to avoid
+fetching or parsing a product web page:
+
+```ts
+const product = await client.getCatalogProduct(103274);
+
+console.log(product.name);
+console.log(product.brand.name);
+console.log(product.servingSize);
+console.log(product.servingsPerContainer);
+console.log(product.potency);
+console.log(product.keyIngredients);
+console.log(product.certifications);
+```
+
+This method calls iHerb's undocumented internal
+`catalog.app.iherb.com/recommendations/comparison/{productId}` and
+`recommendations/aicomparison/{productId}` JSON endpoints. In current testing,
+they require only the `iher-pref1` locale cookie, which the client creates
+automatically. An iHerb account and copied browser cookies are not required for
+this method.
+
+The direct response includes identity, brand, current price and availability,
+image metadata, package quantity, serving size, servings per container,
+potency, certifications and—when the AI comparison response is available—key
+ingredients. It does not expose the complete Supplement Facts table, suggested
+use, other ingredients, warnings or UPC. Use `getProduct()` when those
+page-only fields are required. Every `keyIngredients` entry is marked with
+`source: "ai_comparison"` and must not be treated as authoritative label data.
+
+These endpoints are not public API contracts and can change without notice.
+`diagnostics` explicitly lists missing fields instead of presenting the partial
+response as a complete supplement label.
+
 ## Search behavior
 
 `searchProducts()` returns ranked candidates and product families:

@@ -31,8 +31,11 @@ export type {
 } from "./browser-session.js";
 export type {
   FetchLike,
+  CatalogAttribute,
+  CatalogKeyIngredient,
   IHerbClient,
   IHerbClientOptions,
+  IHerbCatalogProduct,
   IHerbLocale,
   IHerbProduct,
   Money,

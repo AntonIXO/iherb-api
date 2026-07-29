@@ -38,11 +38,30 @@ const FORM_PATTERNS: Array<[ProductFormFactor, RegExp]> = [
   ["spray", /\bsprays?\b/i],
 ];
 
-const COUNT_PATTERN =
-  /(\d+(?:[.,]\d+)?)\s*(capsules?|veggie capsules?|veg capsules?|veggie caps?|veg caps?|softgels?|soft gels?|tablets?|tabs?|gummies|gummy|lozenges?|packets?|sachets?|servings?|count|ct)\b/i;
+const NUMBER_SOURCE =
+  String.raw`(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?)`;
 
-const STRENGTH_PATTERN =
-  /(\d+(?:[.,]\d+)?)\s*(mcg|μg|ug|mg|g|iu|ml)\b/gi;
+const COUNT_PATTERN = new RegExp(
+  `(${NUMBER_SOURCE})\\s*` +
+    "(capsules?|veggie capsules?|veg capsules?|veggie caps?|veg caps?|" +
+    "softgels?|soft gels?|tablets?|tabs?|gummies|gummy|lozenges?|" +
+    "packets?|sachets?|servings?|count|ct)\\b",
+  "i",
+);
+
+const STRENGTH_PATTERN = new RegExp(
+  `(${NUMBER_SOURCE})\\s*(mcg|μg|ug|mg|g|iu|ml)\\b`,
+  "gi",
+);
+
+function parseHumanNumber(value: string): number | null {
+  const compact = value.replace(/\s/g, "");
+  const normalized = /^\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(compact)
+    ? compact.replace(/,/g, "")
+    : compact.replace(",", ".");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
 export function cleanText(value: string): string {
   return value.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
@@ -77,7 +96,7 @@ export function parsePackageQuantity(value: string): ParsedQuantity | null {
   const match = value.match(COUNT_PATTERN);
   if (!match) return null;
   return {
-    amount: Number(match[1]?.replace(",", ".")) || null,
+    amount: match[1] ? parseHumanNumber(match[1]) : null,
     unit: match[2]?.toLowerCase() ?? null,
     raw: cleanText(match[0]),
   };
@@ -86,18 +105,21 @@ export function parsePackageQuantity(value: string): ParsedQuantity | null {
 export function parseQuantity(value: string): ParsedQuantity {
   const cleaned = cleanText(value);
   const match = cleaned.match(
-    /(\d+(?:[.,]\d+)?(?:\s*\/\s*\d+(?:[.,]\d+)?)?)\s*([^\d,;()]+)?/i,
+    new RegExp(
+      `(${NUMBER_SOURCE}(?:\\s*\\/\\s*${NUMBER_SOURCE})?)` +
+        String.raw`\s*([^\d,;()]+)?`,
+      "i",
+    ),
   );
   if (!match) return { amount: null, unit: null, raw: cleaned };
 
-  const numeric = match[1]?.replace(/\s/g, "").replace(",", ".") ?? "";
+  const numeric = match[1]?.replace(/\s/g, "") ?? "";
   let amount: number | null;
   if (numeric.includes("/")) {
-    const [left, right] = numeric.split("/").map(Number);
+    const [left, right] = numeric.split("/").map(parseHumanNumber);
     amount = left != null && right ? left / right : null;
   } else {
-    const parsed = Number(numeric);
-    amount = Number.isFinite(parsed) ? parsed : null;
+    amount = parseHumanNumber(numeric);
   }
 
   return {
@@ -110,9 +132,9 @@ export function parseQuantity(value: string): ParsedQuantity {
 export function extractStrengths(value: string): string[] {
   const strengths: string[] = [];
   for (const match of value.matchAll(STRENGTH_PATTERN)) {
-    const amount = match[1]?.replace(",", ".");
+    const amount = match[1] ? parseHumanNumber(match[1]) : null;
     const unit = match[2]?.toLowerCase().replace("μg", "mcg").replace("ug", "mcg");
-    if (amount && unit) strengths.push(`${Number(amount)}${unit}`);
+    if (amount != null && unit) strengths.push(`${amount}${unit}`);
   }
   return [...new Set(strengths)];
 }
