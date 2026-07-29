@@ -4,6 +4,14 @@
   "description": "Typed iHerb product search and supplement label extraction for Bun and Node.js",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AntonIXO/iherb-api.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AntonIXO/iherb-api/issues"
+  },
+  "homepage": "https://github.com/AntonIXO/iherb-api#readme",
   "sideEffects": false,
   "files": [
     "dist",
