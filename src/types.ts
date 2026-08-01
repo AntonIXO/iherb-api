@@ -5,6 +5,8 @@ export type FetchLike = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+export type IHerbRequestTransport = "fetch" | "curl";
+
 export interface IHerbLocale {
   country: string;
   language: string;
@@ -25,7 +27,30 @@ export interface IHerbClientOptions {
   fetch?: FetchLike;
   timeoutMs?: number;
   userAgent?: string | undefined;
+  catalogProductTransport?: IHerbRequestTransport;
   rateLimit?: RateLimitOptions;
+}
+
+export type IHerbImageSize = "c" | "g" | "v" | "y" | "l";
+
+export type IHerbImageVerification =
+  | "not_checked"
+  | "available"
+  | "missing"
+  | "inconclusive";
+
+export interface IHerbCatalogImage {
+  url: string;
+  size: IHerbImageSize;
+  source: "catalog_response" | "constructed";
+  verification: IHerbImageVerification;
+  verificationStatus: number | null;
+}
+
+/** External HTML that must be treated as text, sanitized, or parsed. */
+export interface UntrustedExternalHtml {
+  kind: "untrusted_external_html";
+  value: string;
 }
 
 export type ProductFormFactor =
@@ -178,6 +203,7 @@ export interface IHerbCatalogProduct {
   price: Money;
   availability: ProductAvailability;
   imageUrl: string | null;
+  image: IHerbCatalogImage | null;
   rating: ProductRating;
   package: ProductPackage;
   servingSize: ParsedQuantity | null;
@@ -188,6 +214,34 @@ export interface IHerbCatalogProduct {
   certifications: string[];
   expirationDate: string | null;
   diagnostics: string[];
+}
+
+/** Product content returned directly by `catalog.app.iherb.com/product/{id}`. */
+export interface IHerbCatalogProductDetails {
+  productId: string;
+  url: string | null;
+  brand: {
+    code: string | null;
+    name: string | null;
+  };
+  displayName: string | null;
+  partNumber: string | null;
+  primaryImageIndex: number | null;
+  imageIndices: number[];
+  packageQuantity: string | null;
+  imageUrl: string | null;
+  image: IHerbCatalogImage | null;
+  supplementFacts: UntrustedExternalHtml | null;
+  ingredients: UntrustedExternalHtml | null;
+  suggestedUse: UntrustedExternalHtml | null;
+  warnings: UntrustedExternalHtml | null;
+  description: UntrustedExternalHtml | null;
+}
+
+export interface CatalogProductRequestOptions {
+  signal?: AbortSignal;
+  imageSize?: IHerbImageSize;
+  verifyImage?: boolean;
 }
 
 export interface SearchScoreReasons {
@@ -268,8 +322,12 @@ export interface IHerbClient {
   ): Promise<IHerbProduct>;
   getCatalogProduct(
     productId: string | number,
-    options?: { signal?: AbortSignal },
+    options?: CatalogProductRequestOptions,
   ): Promise<IHerbCatalogProduct>;
+  getCatalogProductDetails(
+    productId: string | number,
+    options?: CatalogProductRequestOptions,
+  ): Promise<IHerbCatalogProductDetails>;
   refreshProductIndex(
     options?: RefreshProductIndexOptions,
   ): Promise<ProductIndexSnapshot>;

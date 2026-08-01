@@ -83,4 +83,25 @@ describe("IHerbSession", () => {
     expect(requestHeaders.get("accept")).toBe("application/json");
     expect(requestHeaders.get("cookie")).toContain("iher-pref1=");
   });
+
+  test("preserves an explicit locale cookie across iHerb subdomains", async () => {
+    let requestHeaders = new Headers();
+    const session = new IHerbSession({
+      cookieHeader:
+        "iher-pref1=sccode=FI&lan=fi-FI&scurcode=EUR; locale-token=secret",
+      fetch: async (_input, init) => {
+        requestHeaders = new Headers(init?.headers);
+        return Response.json({ ok: true });
+      },
+      rateLimit: { minDelayMs: 0 },
+    });
+
+    await session.requestJson(
+      "https://catalog.app.iherb.com/product/137787",
+    );
+
+    expect(requestHeaders.get("cookie")).toContain("lan=fi-FI");
+    expect(requestHeaders.get("cookie")).toContain("locale-token=secret");
+    expect(requestHeaders.get("cookie")).not.toContain("lan=en-US");
+  });
 });

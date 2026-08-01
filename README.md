@@ -158,6 +158,7 @@ console.log(product.servingsPerContainer);
 console.log(product.potency);
 console.log(product.keyIngredients);
 console.log(product.certifications);
+console.log(product.image?.source); // "constructed"
 ```
 
 This method calls iHerb's undocumented internal
@@ -178,6 +179,62 @@ page-only fields are required. Every `keyIngredients` entry is marked with
 These endpoints are not public API contracts and can change without notice.
 `diagnostics` explicitly lists missing fields instead of presenting the partial
 response as a complete supplement label.
+
+### Complete catalog product details
+
+`getCatalogProductDetails()` calls
+`catalog.app.iherb.com/product/{productId}`. Unlike the comparison endpoints,
+this response includes the localized Supplement Facts table, ingredients,
+suggested use, warnings and description:
+
+```ts
+const details = await client.getCatalogProductDetails(137787, {
+  imageSize: "y", // 800×800; defaults to "g" (400×400)
+  verifyImage: true,
+});
+
+console.log(details.displayName);
+console.log(details.partNumber);
+console.log(details.imageUrl); // existing string facade
+console.log(details.image);
+// {
+//   url: "https://s3.images-iherb.com/spn/spn02429/y/59.jpg",
+//   source: "constructed",
+//   verification: "available",
+//   verificationStatus: 200,
+//   size: "y"
+// }
+
+const factsText = details.supplementFacts?.value;
+```
+
+The HTML-bearing fields use the `UntrustedExternalHtml` wrapper. Its `value`
+is source data from iHerb and must not be passed directly to an HTML renderer;
+treat it as text, parse it, or sanitize it for the target application.
+
+The product response has no `image`, `imageUrl`, or `images` field. Image URLs
+are therefore constructed from the part-number prefix, normalized part number,
+requested size, and image index. `image.source` remains `"constructed"` even
+after a successful HEAD check: the check confirms that the object exists, not
+that the catalog returned its URL. Supported sizes are `c` (160×160), `g`
+(400×400), `v` (600×600), `y` (800×800), and `l` (1600×1600).
+
+Cloudflare can reject Node/Bun `fetch` for this endpoint based on its TLS
+fingerprint. Consequently, `getCatalogProductDetails()` uses an explicit curl
+transport by default while still sharing the client's timeout, User-Agent,
+locale, cookie jar, rate limiting, and error handling. Cookie values are never
+included in transport errors. The default strategy requires `curl` on `PATH`.
+In an environment where native fetch is known to work, it can be selected
+explicitly:
+
+```ts
+const client = createIHerbClient({
+  catalogProductTransport: "fetch",
+});
+```
+
+The response ID is checked against the requested ID before any product is
+returned. A mismatched or malformed response raises `IHerbParseError`.
 
 ## Search behavior
 

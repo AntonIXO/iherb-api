@@ -1,3 +1,6 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
 import { CookieJar } from "tough-cookie";
 
 import {
@@ -10,8 +13,11 @@ import type {
   FetchLike,
   IHerbClientOptions,
   IHerbLocale,
+  IHerbRequestTransport,
   RateLimitOptions,
 } from "./types.js";
+
+const execFileAsync = promisify(execFile);
 
 const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
@@ -30,6 +36,7 @@ const CHALLENGE_PATTERNS = [
 interface RequestTextOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
+  transport?: IHerbRequestTransport;
 }
 
 class RequestScheduler {
@@ -133,7 +140,9 @@ export class IHerbSession {
   ): Promise<string> {
     await this.initializeCookies();
     const url = new URL(input, this.baseUrl);
-    return this.scheduler.run(() => this.withRetries(url, options));
+    return this.scheduler.run(() =>
+      this.withRetries(url, options, options.transport ?? "fetch"),
+    );
   }
 
   async requestJson<T>(
@@ -171,27 +180,32 @@ export class IHerbSession {
       }
     }
 
-    const preference = [
-      `sccode=${this.locale.country}`,
-      `lan=${this.locale.language}`,
-      `scurcode=${this.locale.currency}`,
-      "noitmes=48",
-    ].join("&");
-    await this.cookieJar.setCookie(
-      `iher-pref1=${preference}; Domain=.iherb.com; Path=/`,
-      this.baseUrl.href,
-    );
+    if (!/(?:^|;\s*)iher-pref1=/i.test(this.initialCookieHeader ?? "")) {
+      const preference = [
+        `sccode=${this.locale.country}`,
+        `lan=${this.locale.language}`,
+        `scurcode=${this.locale.currency}`,
+        "noitmes=48",
+      ].join("&");
+      await this.cookieJar.setCookie(
+        `iher-pref1=${preference}; Domain=.iherb.com; Path=/`,
+        this.baseUrl.href,
+      );
+    }
   }
 
   private async withRetries(
     url: URL,
     options: RequestTextOptions,
+    transport: IHerbRequestTransport,
   ): Promise<string> {
     let lastError: unknown;
 
     for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
       try {
-        return await this.singleRequest(url, options);
+        return transport === "curl"
+          ? await this.singleCurlRequest(url, options)
+          : await this.singleFetchRequest(url, options);
       } catch (error) {
         lastError = error;
         if (error instanceof IHerbBlockedError) throw error;
@@ -219,7 +233,63 @@ export class IHerbSession {
     throw lastError;
   }
 
-  private async singleRequest(
+  private async requestHeaders(
+    url: URL,
+    options: RequestTextOptions,
+  ): Promise<Headers> {
+    const headers = new Headers(options.headers);
+    if (!headers.has("Accept")) {
+      headers.set(
+        "Accept",
+        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      );
+    }
+    headers.set("Accept-Language", `${this.locale.language},en;q=0.8`);
+    headers.set("User-Agent", this.userAgent);
+    const jarCookie = await this.cookieJar.getCookieString(url.href);
+    const crossSubdomainCookie =
+      this.initialCookieHeader &&
+      url.hostname !== this.baseUrl.hostname &&
+      url.hostname.endsWith("iherb.com") &&
+      this.baseUrl.hostname.endsWith("iherb.com")
+        ? this.initialCookieHeader
+        : "";
+    headers.set(
+      "Cookie",
+      [crossSubdomainCookie, jarCookie].filter(Boolean).join("; "),
+    );
+    return headers;
+  }
+
+  private validateResponse(
+    status: number,
+    headers: Headers,
+    text: string,
+  ): void {
+    if (
+      status === 403 ||
+      headers.get("cf-mitigated")?.toLowerCase() === "challenge" ||
+      isChallengePage(text)
+    ) {
+      throw new IHerbBlockedError(
+        text && isChallengePage(text)
+          ? "iHerb returned a CAPTCHA or browser verification challenge"
+          : undefined,
+        status,
+      );
+    }
+    if (status === 429) {
+      throw new IHerbRateLimitError(retryAfterMs(headers.get("retry-after")));
+    }
+    if (status < 200 || status >= 300) {
+      throw new IHerbHttpError(
+        `iHerb request failed with HTTP ${status}`,
+        status,
+      );
+    }
+  }
+
+  private async singleFetchRequest(
     url: URL,
     options: RequestTextOptions,
   ): Promise<string> {
@@ -229,16 +299,7 @@ export class IHerbSession {
     options.signal?.addEventListener("abort", abortFromCaller, { once: true });
 
     try {
-      const headers = new Headers(options.headers);
-      if (!headers.has("Accept")) {
-        headers.set(
-          "Accept",
-          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        );
-      }
-      headers.set("Accept-Language", `${this.locale.language},en;q=0.8`);
-      headers.set("User-Agent", this.userAgent);
-      headers.set("Cookie", await this.cookieJar.getCookieString(url.href));
+      const headers = await this.requestHeaders(url, options);
 
       const response = await this.fetchImpl(url, {
         method: "GET",
@@ -253,35 +314,58 @@ export class IHerbSession {
         });
       }
 
-      if (
-        response.status === 403 ||
-        response.headers.get("cf-mitigated")?.toLowerCase() === "challenge"
-      ) {
-        throw new IHerbBlockedError();
-      }
-      if (response.status === 429) {
-        throw new IHerbRateLimitError(
-          retryAfterMs(response.headers.get("retry-after")),
-        );
-      }
-      if (!response.ok) {
-        throw new IHerbHttpError(
-          `iHerb request failed with HTTP ${response.status}`,
-          response.status,
-        );
-      }
-
       const text = await response.text();
-      if (isChallengePage(text)) {
-        throw new IHerbBlockedError(
-          "iHerb returned a CAPTCHA or browser verification challenge",
-          response.status,
-        );
-      }
+      this.validateResponse(response.status, response.headers, text);
       return text;
     } finally {
       clearTimeout(timeout);
       options.signal?.removeEventListener("abort", abortFromCaller);
     }
+  }
+
+  private async singleCurlRequest(
+    url: URL,
+    options: RequestTextOptions,
+  ): Promise<string> {
+    const headers = await this.requestHeaders(url, options);
+    const marker = "\n__IHERB_HTTP_STATUS__:";
+    const args = [
+      "--silent",
+      "--show-error",
+      "--location",
+      "--max-time",
+      String(Math.ceil(this.timeoutMs / 1_000)),
+    ];
+    for (const [name, value] of headers) {
+      args.push("--header", `${name}: ${value}`);
+    }
+    args.push("--write-out", `${marker}%{http_code}`, url.href);
+
+    let stdout: string;
+    try {
+      const result = await execFileAsync("curl", args, {
+        timeout: this.timeoutMs + 1_000,
+        maxBuffer: 2_000_000,
+        ...(options.signal ? { signal: options.signal } : {}),
+      });
+      stdout = result.stdout;
+    } catch {
+      if (options.signal?.aborted) {
+        throw options.signal.reason ?? new DOMException("Aborted", "AbortError");
+      }
+      // curl is explicit here because Cloudflare rejects Node/Bun fetch TLS
+      // fingerprints for this endpoint on affected hosts. Never expose args:
+      // they may contain the caller's Cookie header.
+      throw new IHerbHttpError("iHerb curl transport failed", 0);
+    }
+
+    const markerIndex = stdout.lastIndexOf(marker);
+    const status = Number(stdout.slice(markerIndex + marker.length));
+    if (markerIndex < 0 || !Number.isInteger(status)) {
+      throw new IHerbParseError("iHerb curl transport returned no HTTP status");
+    }
+    const text = stdout.slice(0, markerIndex);
+    this.validateResponse(status, new Headers(), text);
+    return text;
   }
 }

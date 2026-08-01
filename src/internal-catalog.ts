@@ -7,17 +7,32 @@ import {
 } from "./normalize.js";
 import { IHerbSession } from "./session.js";
 import type {
+  CatalogProductRequestOptions,
   CatalogAttribute,
   CatalogKeyIngredient,
+  FetchLike,
+  IHerbCatalogImage,
   IHerbCatalogProduct,
+  IHerbImageSize,
   ParsedQuantity,
   ProductAvailability,
 } from "./types.js";
 
 const CATALOG_API_BASE_URL = "https://catalog.app.iherb.com";
-const IMAGE_BASE_URL =
-  "https://cloudinary.images-iherb.com/image/upload/" +
-  "f_auto,q_auto:eco/images";
+const IMAGE_BASE_URL = "https://s3.images-iherb.com";
+
+export const IHERB_IMAGE_SIZE_PIXELS = {
+  c: 160,
+  g: 400,
+  v: 600,
+  y: 800,
+  l: 1600,
+} as const satisfies Record<IHerbImageSize, number>;
+
+export interface VerifyIHerbImageOptions {
+  fetch?: FetchLike;
+  signal?: AbortSignal;
+}
 
 interface ComparisonFieldResponse {
   context?: unknown;
@@ -166,14 +181,72 @@ function attributeValues(
   return attributes.find((attribute) => attribute.id === id)?.values ?? [];
 }
 
-function imageUrl(product: ComparisonProductResponse): string | null {
-  const brandCode = stringOrNull(product.brandCode)?.toLowerCase();
-  const partNumber = stringOrNull(product.partNumber)
-    ?.replace(/[^a-z0-9]/gi, "")
-    .toLowerCase();
+export function constructIHerbImage(
+  rawPartNumber: string,
+  imageIndex: number,
+  size: IHerbImageSize = "g",
+): IHerbCatalogImage | null {
+  const partNumber = rawPartNumber.trim();
+  const prefix = /^([a-z]+)-/i.exec(partNumber)?.[1]?.toLowerCase();
+  const normalized = partNumber.replace(/[^a-z0-9]/gi, "").toLowerCase();
+  if (
+    !prefix ||
+    !normalized ||
+    !Number.isInteger(imageIndex) ||
+    imageIndex < 0
+  ) {
+    return null;
+  }
+
+  // The CDN shard comes from the part-number prefix, not brandCode. They are
+  // usually equal, but products such as CGN / SPN-02429 prove they can differ.
+  return {
+    url: `${IMAGE_BASE_URL}/${prefix}/${normalized}/${size}/${imageIndex}.jpg`,
+    size,
+    source: "constructed",
+    verification: "not_checked",
+    verificationStatus: null,
+  };
+}
+
+export async function verifyIHerbImage(
+  image: IHerbCatalogImage,
+  options: VerifyIHerbImageOptions = {},
+): Promise<IHerbCatalogImage> {
+  try {
+    const response = await (options.fetch ?? globalThis.fetch)(image.url, {
+      method: "HEAD",
+      redirect: "follow",
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+    return {
+      ...image,
+      verification: response.ok
+        ? "available"
+        : response.status === 404
+          ? "missing"
+          : "inconclusive",
+      verificationStatus: response.status,
+    };
+  } catch (error) {
+    if (options.signal?.aborted) throw error;
+    return {
+      ...image,
+      verification: "inconclusive",
+      verificationStatus: null,
+    };
+  }
+}
+
+function imageUrl(
+  product: ComparisonProductResponse,
+  size: IHerbImageSize = "g",
+): IHerbCatalogImage | null {
+  const partNumber = stringOrNull(product.partNumber);
   const index = numberOrNull(product.primaryImageIndex);
-  if (!brandCode || !partNumber || index == null) return null;
-  return `${IMAGE_BASE_URL}/${brandCode}/${partNumber}/g/${index}.jpg`;
+  return partNumber && index != null
+    ? constructIHerbImage(partNumber, index, size)
+    : null;
 }
 
 function availability(
@@ -227,6 +300,7 @@ function parseCatalogProduct(
   fields: ComparisonFieldResponse[],
   ai: AiComparisonResponse | null,
   currency: string,
+  imageSize: IHerbImageSize,
 ): IHerbCatalogProduct {
   const id = numberOrNull(product.id);
   const name = stringOrNull(product.name);
@@ -254,6 +328,7 @@ function parseCatalogProduct(
     attributeValues(attributes, 165)[0] ??
     null;
   const packageRaw = stringOrNull(product.packageQuantity);
+  const image = imageUrl(product, imageSize);
   const diagnostics = [
     "Internal catalog JSON does not expose complete Supplement Facts, " +
       "suggested use, other ingredients, warnings, or UPC.",
@@ -295,7 +370,8 @@ function parseCatalogProduct(
       currency,
     },
     availability: availability(product),
-    imageUrl: imageUrl(product),
+    imageUrl: image?.url ?? null,
+    image,
     rating: {
       value: numberOrNull(product.rating),
       count: numberOrNull(product.ratingCount),
@@ -327,11 +403,14 @@ function parseCatalogProduct(
 }
 
 export class InternalCatalogService {
-  constructor(private readonly session: IHerbSession) {}
+  constructor(
+    private readonly session: IHerbSession,
+    private readonly fetchImpl?: FetchLike,
+  ) {}
 
   async getProduct(
     input: string | number,
-    options: { signal?: AbortSignal } = {},
+    options: CatalogProductRequestOptions = {},
   ): Promise<IHerbCatalogProduct> {
     const productId = validProductId(input);
     const requestOptions = options.signal ? { signal: options.signal } : {};
@@ -369,12 +448,20 @@ export class InternalCatalogService {
             item != null && typeof item === "object",
         )
       : [];
-    return parseCatalogProduct(
+    const result = parseCatalogProduct(
       productId,
       product,
       fields,
       ai,
       this.session.locale.currency,
+      options.imageSize ?? "g",
     );
+    if (!options.verifyImage || !result.image) return result;
+
+    const image = await verifyIHerbImage(result.image, {
+      ...(this.fetchImpl ? { fetch: this.fetchImpl } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+    return { ...result, imageUrl: image.url, image };
   }
 }

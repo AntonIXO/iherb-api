@@ -2,6 +2,11 @@ import { describe, expect, test } from "bun:test";
 
 import { createIHerbClient } from "../src/client.js";
 import { IHerbNotFoundError } from "../src/errors.js";
+import {
+  constructIHerbImage,
+  IHERB_IMAGE_SIZE_PIXELS,
+  verifyIHerbImage,
+} from "../src/internal-catalog.js";
 
 const comparisonResponse = {
   fields: [
@@ -114,6 +119,11 @@ describe("internal iHerb catalog", () => {
     });
     expect(product.certifications).toEqual(["Gluten-free", "Vegan"]);
     expect(product.imageUrl).toContain("/cgn/cgn01902/g/106.jpg");
+    expect(product.image).toMatchObject({
+      source: "constructed",
+      size: "g",
+      verification: "not_checked",
+    });
     expect(product.availability.status).toBe("in_stock");
 
     expect(requestHeaders).toHaveLength(2);
@@ -121,6 +131,60 @@ describe("internal iHerb catalog", () => {
       expect(headers.get("accept")).toBe("application/json");
       expect(headers.get("cookie")).toContain("iher-pref1=");
     }
+  });
+
+  test("uses the part-number prefix when it differs from brandCode", async () => {
+    const response = structuredClone(comparisonResponse);
+    Object.assign(response.products[0]!, {
+      id: 137787,
+      brandCode: "CGN",
+      partNumber: "SPN-02429",
+      primaryImageIndex: 59,
+    });
+    const client = createIHerbClient({
+      fetch: async (input) =>
+        String(input).includes("/aicomparison/")
+          ? new Response(null, { status: 204 })
+          : Response.json(response),
+      rateLimit: { concurrency: 2, minDelayMs: 0 },
+    });
+
+    const product = await client.getCatalogProduct(137787, { imageSize: "y" });
+
+    expect(product.imageUrl).toBe(
+      "https://s3.images-iherb.com/spn/spn02429/y/59.jpg",
+    );
+    expect(product.image).toMatchObject({
+      size: "y",
+      source: "constructed",
+      verification: "not_checked",
+    });
+  });
+
+  test("optionally verifies a constructed image with HEAD", async () => {
+    const methods: Array<string | undefined> = [];
+    const client = createIHerbClient({
+      fetch: async (input, init) => {
+        methods.push(init?.method);
+        if (String(input).startsWith("https://s3.images-iherb.com/")) {
+          return new Response(null, { status: 200 });
+        }
+        return String(input).includes("/aicomparison/")
+          ? Response.json(aiComparisonResponse)
+          : Response.json(comparisonResponse);
+      },
+      rateLimit: { concurrency: 2, minDelayMs: 0 },
+    });
+
+    const product = await client.getCatalogProduct(103274, {
+      verifyImage: true,
+    });
+
+    expect(methods).toContain("HEAD");
+    expect(product.image).toMatchObject({
+      verification: "available",
+      verificationStatus: 200,
+    });
   });
 
   test("keeps core catalog data when AI comparison has no content", async () => {
@@ -152,5 +216,46 @@ describe("internal iHerb catalog", () => {
     await expect(client.getCatalogProduct(999999999)).rejects.toBeInstanceOf(
       IHerbNotFoundError,
     );
+  });
+});
+
+describe("iHerb image URL construction", () => {
+  test("constructs known CDN paths from part numbers", () => {
+    expect(constructIHerbImage("SPN-02429", 59, "y")?.url).toBe(
+      "https://s3.images-iherb.com/spn/spn02429/y/59.jpg",
+    );
+    expect(constructIHerbImage("CLL-02413", 3)?.url).toBe(
+      "https://s3.images-iherb.com/cll/cll02413/g/3.jpg",
+    );
+    expect(constructIHerbImage("EAT-06940", 1)?.url).toBe(
+      "https://s3.images-iherb.com/eat/eat06940/g/1.jpg",
+    );
+  });
+
+  test("exports only the verified size segments", () => {
+    expect(IHERB_IMAGE_SIZE_PIXELS).toEqual({
+      c: 160,
+      g: 400,
+      v: 600,
+      y: 800,
+      l: 1600,
+    });
+    expect(IHERB_IMAGE_SIZE_PIXELS).not.toHaveProperty("p");
+  });
+
+  test("keeps failed HEAD checks explicit", async () => {
+    const image = constructIHerbImage("SPN-02429", 59)!;
+    const missing = await verifyIHerbImage(image, {
+      fetch: async (_input, init) => {
+        expect(init?.method).toBe("HEAD");
+        return new Response(null, { status: 404 });
+      },
+    });
+
+    expect(missing).toMatchObject({
+      source: "constructed",
+      verification: "missing",
+      verificationStatus: 404,
+    });
   });
 });

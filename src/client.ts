@@ -1,3 +1,4 @@
+import { CatalogProductDetailsService } from "./catalog-product.js";
 import { IHerbNotFoundError } from "./errors.js";
 import { InternalCatalogService } from "./internal-catalog.js";
 import { productIdFromUrl } from "./normalize.js";
@@ -5,9 +6,11 @@ import { parseProductPage } from "./product-parser.js";
 import { ProductSearchService } from "./search.js";
 import { IHerbSession } from "./session.js";
 import type {
+  CatalogProductRequestOptions,
   IHerbClient,
   IHerbClientOptions,
   IHerbCatalogProduct,
+  IHerbCatalogProductDetails,
   IHerbProduct,
   ProductIndexSnapshot,
   ProductSearchResult,
@@ -19,11 +22,20 @@ export class DefaultIHerbClient implements IHerbClient {
   private readonly session: IHerbSession;
   private readonly searchService: ProductSearchService;
   private readonly internalCatalog: InternalCatalogService;
+  private readonly catalogProductDetails: CatalogProductDetailsService;
 
   constructor(options: IHerbClientOptions = {}) {
     this.session = new IHerbSession(options);
     this.searchService = new ProductSearchService(this.session);
-    this.internalCatalog = new InternalCatalogService(this.session);
+    this.internalCatalog = new InternalCatalogService(
+      this.session,
+      options.fetch,
+    );
+    this.catalogProductDetails = new CatalogProductDetailsService(
+      this.session,
+      options.catalogProductTransport ?? "curl",
+      options.fetch,
+    );
   }
 
   searchProducts(
@@ -75,9 +87,16 @@ export class DefaultIHerbClient implements IHerbClient {
 
   getCatalogProduct(
     productId: string | number,
-    options: { signal?: AbortSignal } = {},
+    options: CatalogProductRequestOptions = {},
   ): Promise<IHerbCatalogProduct> {
     return this.internalCatalog.getProduct(productId, options);
+  }
+
+  getCatalogProductDetails(
+    productId: string | number,
+    options: CatalogProductRequestOptions = {},
+  ): Promise<IHerbCatalogProductDetails> {
+    return this.catalogProductDetails.getProduct(productId, options);
   }
 
   refreshProductIndex(
