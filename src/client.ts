@@ -5,6 +5,7 @@ import { productIdFromUrl } from "./normalize.js";
 import { parseProductPage } from "./product-parser.js";
 import { ProductSearchService } from "./search.js";
 import { IHerbSession } from "./session.js";
+import { summarizeSearchCandidates } from "./supplement-label.js";
 import type {
   CatalogProductRequestOptions,
   IHerbClient,
@@ -14,7 +15,9 @@ import type {
   IHerbProduct,
   ProductIndexSnapshot,
   ProductSearchResult,
+  ProductSearchSummary,
   RefreshProductIndexOptions,
+  SearchProductSummariesOptions,
   SearchProductsOptions,
 } from "./types.js";
 
@@ -46,6 +49,32 @@ export class DefaultIHerbClient implements IHerbClient {
       sitemapFallback: true,
       ...options,
     });
+  }
+
+  /**
+   * Display-ready search results for a product picker.
+   *
+   * Never rejects on an upstream failure: a blocked or slow iHerb must degrade
+   * to "nothing found", not break the caller's UI. A query shorter than
+   * `minQueryLength` is answered locally without a request.
+   */
+  async searchProductSummaries(
+    query: string,
+    options: SearchProductSummariesOptions = {},
+  ): Promise<ProductSearchSummary[]> {
+    const { minQueryLength = 3, limit = 8, ...searchOptions } = options;
+    const text = String(query ?? "").trim();
+    if (text.length < minQueryLength) return [];
+
+    try {
+      const result = await this.searchProducts(text, {
+        ...searchOptions,
+        limit: limit * 2,
+      });
+      return summarizeSearchCandidates(result.candidates ?? [], limit);
+    } catch {
+      return [];
+    }
   }
 
   async getProduct(

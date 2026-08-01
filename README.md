@@ -271,6 +271,69 @@ client.importProductIndex(
 
 The library itself stays portable and does not write index files.
 
+For a product picker, prefer `searchProductSummaries()`: it ranks, dedupes by
+product ID, turns sitemap slugs into readable titles, and never rejects — a
+blocked or slow iHerb degrades to an empty array rather than an exception.
+
+```ts
+const results = await client.searchProductSummaries("vitamin c 1000 mg", {
+  limit: 8,
+  minQueryLength: 3, // shorter queries are answered locally, without a request
+});
+
+results[0]?.title;       // "California Gold Nutrition Gold C Usp Grade Vitamin C 1000 mg …"
+results[0]?.productId;   // "61865"
+results[0]?.unitDosage;  // 1000
+```
+
+A search result deliberately carries **no ingredient name**: a sitemap
+candidate is a lowercased slug with none of the comma structure a real title
+has, so any guess would be wrong ("Gold C Usp Grade Vitamin C"). Resolve the
+real label by fetching the product once the user picks one.
+
+## Supplement labels
+
+A product title is a specification, not a name: iHerb writes
+`Brand, Ingredient[, product line, marketing…], dose, count form`. The package
+reduces it to the fields an intake tracker actually stores.
+
+```ts
+import { extractCatalogLabel, extractProductLabel } from "iherb-api";
+
+const details = await client.getCatalogProductDetails("61865", {
+  verifyImage: true,
+});
+extractCatalogLabel(details);
+// {
+//   ingredientName: "Vitamin C",   // brand, dose, grade and pack size removed
+//   bottleName: "Gold C",          // the mark actually printed on the label
+//   brandName: "California Gold Nutrition",
+//   formFactor: "capsule",
+//   unitDosage: 1000,              // PER UNIT, not per serving
+//   unitMeasure: "mg",
+//   confidence: 0.94,
+// }
+
+extractProductLabel(await client.getProduct(103274)); // same shape
+```
+
+Three rules the extractors encode, each learned from a live product:
+
+- **`unitDosage` is per unit.** Supplement Facts state an amount per *serving*,
+  and a serving is frequently two capsules; storing the serving amount doubles
+  every exposure downstream.
+- **A dose is read the way a label writes it.** `1,000 mg` is one thousand
+  milligrams; parsed as a decimal it silently becomes a 1 mg bottle.
+- **The ingredient is not the mark.** `Quercetin Phytosome Quercefit®` is
+  Quercetin Phytosome sold as Quercefit, and `USP Grade Vitamin C` is Vitamin C.
+  Keeping the qualifier forks one substance into several catalog entries.
+
+The individual helpers are exported too, for callers that need only one of
+them: `canonicalIngredientName`, `bottleMark`, `parseLabelDose`,
+`parseLabelNumber`, `normalizeLabelUnit`, `inferIHerbBrand`,
+`isNutritionPanelRow`, `titleCaseLabel`, `splitTitleSegments`,
+`searchCandidateTitle`, `firstCatalogFact`, `catalogServingUnits`.
+
 ## Extracted product data
 
 `getProduct()` returns:

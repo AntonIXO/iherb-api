@@ -244,6 +244,50 @@ export interface CatalogProductRequestOptions {
   verifyImage?: boolean;
 }
 
+/**
+ * A search candidate reduced to what a product picker can honestly show.
+ *
+ * Deliberately NOT a `SupplementLabel`: a sitemap candidate carries only a
+ * lowercased slug, which has none of the comma structure that separates brand,
+ * ingredient and pack size in a real title. Guessing an ingredient name from it
+ * produces entries like "Gold C Usp Grade Vitamin C". Fetch the product with
+ * `getCatalogProductDetails` and use `extractCatalogLabel` once the user picks
+ * one.
+ */
+export interface ProductSearchSummary {
+  productId: string;
+  url: string;
+  title: string;
+  brandName: string | null;
+  /** Dose read from the candidate name; often present in the slug. */
+  unitDosage: number | null;
+  unitMeasure: string;
+  formFactor: ProductFormFactor;
+  confidence: number;
+}
+
+/**
+ * One product reduced to the fields a supplement tracker stores.
+ *
+ * `ingredientName` is the substance ("Vitamin C"), free of brand, dose,
+ * pharmacopoeia grade and pack size, so the same molecule from two bottles
+ * resolves to one catalog entry. `bottleName` is the complementary half: the
+ * mark actually printed on the label ("Gold C", "Quercefit"), which is the only
+ * part of a title not already captured by the other fields.
+ *
+ * `unitDosage` is PER UNIT, not per serving — a serving is frequently two
+ * capsules, and storing the serving amount doubles every exposure downstream.
+ */
+export interface SupplementLabel {
+  ingredientName: string;
+  bottleName: string;
+  brandName: string | null;
+  formFactor: ProductFormFactor;
+  unitDosage: number | null;
+  unitMeasure: string;
+  confidence: number;
+}
+
 export interface SearchScoreReasons {
   fuzzyName: number;
   brand: number;
@@ -293,6 +337,14 @@ export interface SearchProductsOptions {
   signal?: AbortSignal;
 }
 
+export interface SearchProductSummariesOptions extends SearchProductsOptions {
+  /**
+   * Shortest query that is allowed to reach iHerb (default 3). A one or two
+   * character query matches most of the sitemap and is never a useful search.
+   */
+  minQueryLength?: number;
+}
+
 export interface ProductIndexEntry {
   productId: string;
   url: string;
@@ -316,6 +368,15 @@ export interface IHerbClient {
     ocrText: string,
     options?: SearchProductsOptions,
   ): Promise<ProductSearchResult>;
+  /**
+   * Ranked, deduped, display-ready search results. Prefer this over
+   * `searchProducts` when driving a product picker: it removes the candidate
+   * ranking and slug-title handling every consumer was rewriting.
+   */
+  searchProductSummaries(
+    query: string,
+    options?: SearchProductSummariesOptions,
+  ): Promise<ProductSearchSummary[]>;
   getProduct(
     productIdOrUrl: string | number,
     options?: { signal?: AbortSignal },

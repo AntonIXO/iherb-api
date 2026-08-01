@@ -8,7 +8,29 @@ export {
   IHerbRateLimitError,
 } from "./errors.js";
 export { parseProductPage } from "./product-parser.js";
+export {
+  bottleMark,
+  canonicalIngredientName,
+  inferIHerbBrand,
+  isNutritionPanelRow,
+  KNOWN_IHERB_BRANDS,
+  LABEL_DOSE_PATTERN,
+  normalizeLabelUnit,
+  parseLabelDose,
+  parseLabelNumber,
+  searchCandidateTitle,
+  splitTitleSegments,
+  titleCaseLabel,
+} from "./label.js";
 export { parseSearchPage } from "./search.js";
+export {
+  catalogServingUnits,
+  extractCatalogLabel,
+  extractProductLabel,
+  firstCatalogFact,
+  summarizeSearchCandidate,
+  summarizeSearchCandidates,
+} from "./supplement-label.js";
 export { parseIHerbCatalogProductDetails } from "./catalog-product.js";
 export {
   constructIHerbImage,
@@ -64,10 +86,13 @@ export type {
   ProductRating,
   ProductSearchCandidate,
   ProductSearchResult,
+  ProductSearchSummary,
   RateLimitOptions,
   RefreshProductIndexOptions,
+  SearchProductSummariesOptions,
   SearchProductsOptions,
   SearchScoreReasons,
+  SupplementLabel,
   SupplementFact,
   UntrustedExternalHtml,
 } from "./types.js";
