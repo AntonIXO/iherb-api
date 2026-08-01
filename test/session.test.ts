@@ -81,7 +81,46 @@ describe("IHerbSession", () => {
 
     expect(result).toEqual({ ok: true });
     expect(requestHeaders.get("accept")).toBe("application/json");
-    expect(requestHeaders.get("cookie")).toContain("iher-pref1=");
+    // Not just "a preference cookie exists": the language has to be the
+    // session's. The jar stores the preference against www.iherb.com and does
+    // not return it for this sibling host, so iHerb used to fall back to the
+    // caller's geography and answer in that language.
+    expect(requestHeaders.get("cookie")).toContain("lan=en-US");
+  });
+
+  test("pins the locale on catalog subdomains when no cookie was supplied", async () => {
+    let requestHeaders = new Headers();
+    const session = new IHerbSession({
+      locale: { country: "DE", language: "de-DE", currency: "EUR" },
+      fetch: async (_input, init) => {
+        requestHeaders = new Headers(init?.headers);
+        return Response.json({ ok: true });
+      },
+      rateLimit: { minDelayMs: 0 },
+    });
+
+    await session.requestJson("https://catalog.app.iherb.com/product/137787");
+
+    const cookie = requestHeaders.get("cookie") ?? "";
+    expect(cookie).toContain("lan=de-DE");
+    expect(cookie).toContain("sccode=DE");
+    // One preference cookie, not a duplicate pair the server has to arbitrate.
+    expect(cookie.match(/iher-pref1=/g)).toHaveLength(1);
+  });
+
+  test("does not leak iHerb cookies to a non-iHerb host", async () => {
+    let requestHeaders = new Headers();
+    const session = new IHerbSession({
+      fetch: async (_input, init) => {
+        requestHeaders = new Headers(init?.headers);
+        return Response.json({ ok: true });
+      },
+      rateLimit: { minDelayMs: 0 },
+    });
+
+    await session.requestJson("https://example.com/product/1");
+
+    expect(requestHeaders.get("cookie") ?? "").not.toContain("iher-pref1=");
   });
 
   test("preserves an explicit locale cookie across iHerb subdomains", async () => {
