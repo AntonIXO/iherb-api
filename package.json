@@ -1,6 +1,6 @@
 {
   "name": "iherb-api",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Typed iHerb product search and supplement label extraction for Bun and Node.js",
   "type": "module",
   "license": "MIT",
